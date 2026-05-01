@@ -612,6 +612,84 @@ button:disabled {
   max-width: 100%;
 }
 
+.token-identity-panel {
+  background: linear-gradient(180deg, var(--surface-2), var(--surface-3));
+}
+
+.token-head {
+  display: grid;
+  grid-template-columns: 54px 1fr;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.token-head img,
+.token-logo-fallback {
+  width: 54px;
+  height: 54px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.token-head img {
+  object-fit: cover;
+}
+
+.token-logo-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--blue);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.token-head > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.token-head strong {
+  color: var(--text);
+  font-size: 24px;
+  line-height: 1;
+}
+
+.token-head span,
+.token-head code {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.token-head code {
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.token-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.token-metrics .metric {
+  align-items: flex-start;
+}
+
+.token-metrics .metric strong {
+  max-width: 100%;
+}
+
 .decision-panel {
   min-height: 174px;
   transition: border-color 0.2s ease, background 0.2s ease;
@@ -1033,6 +1111,10 @@ button:disabled {
   .landing-topbar {
     padding: 18px 20px;
   }
+
+  .token-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 560px) {
@@ -1059,5 +1141,10 @@ button:disabled {
 
   .metric:nth-of-type(2) {
     display: none;
+  }
+
+  .token-metrics .metric:nth-of-type(2),
+  .context-grid .metric:nth-of-type(2) {
+    display: flex;
   }
 }

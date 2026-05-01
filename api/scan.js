@@ -58,6 +58,8 @@ function extractToken(raw, tokenAddress) {
   const info = raw?.info || {};
   const details = info.token_details || {};
   const spot = info.spot_metrics || {};
+  const deployedAt =
+    info.deployedAt ?? info.deployed_at ?? info.createdAt ?? details.token_deployment_date ?? details.deployed_at ?? null;
 
   return {
     address: tokenAddress,
@@ -66,9 +68,16 @@ function extractToken(raw, tokenAddress) {
     logo: details.logo_url ?? details.logo ?? info.logo_url ?? info.logo ?? null,
     priceUsd: pickNumber(spot.price_usd, spot.token_price_usd, details.price_usd),
     marketCapUsd: pickNumber(details.market_cap_usd, spot.market_cap_usd),
+    fdvUsd: pickNumber(details.fdv_usd, spot.fdv_usd),
     liquidityUsd: pickNumber(spot.liquidity_usd, details.liquidity_usd),
     holders: pickNumber(spot.total_holders, details.total_holders),
     volumeUsd24h: pickNumber(spot.volume_total_usd, spot.volume_usd, details.volume_usd),
+    buyVolumeUsd24h: pickNumber(spot.buy_volume_usd, spot.volume_buy_usd),
+    sellVolumeUsd24h: pickNumber(spot.sell_volume_usd, spot.volume_sell_usd),
+    buys24h: pickNumber(spot.total_buys, spot.buys),
+    sells24h: pickNumber(spot.total_sells, spot.sells),
+    age: deployedAt,
+    deployedAt,
   };
 }
 

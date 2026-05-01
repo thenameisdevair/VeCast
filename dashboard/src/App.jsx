@@ -56,6 +56,32 @@ function formatTime(timestamp) {
   return new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+function formatCompactNumber(value, options = {}) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  return new Intl.NumberFormat("en", {
+    notation: "compact",
+    maximumFractionDigits: options.fractionDigits ?? 2,
+  }).format(number);
+}
+
+function formatUsd(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  return `$${formatCompactNumber(number)}`;
+}
+
+function formatAge(timestamp) {
+  if (!timestamp) return "-";
+  const then = new Date(timestamp).getTime();
+  if (!Number.isFinite(then)) return "-";
+  const days = Math.max(0, Math.floor((Date.now() - then) / 86400000));
+  if (days < 1) return "<1d";
+  if (days < 30) return `${days}d`;
+  if (days < 365) return `${Math.floor(days / 30)}mo`;
+  return `${Math.floor(days / 365)}y`;
+}
+
 function displayToken(decision) {
   const symbol = decision?.tokenInfo?.symbol;
   const address = decision?.tokenAddress || decision?.token;
@@ -217,6 +243,42 @@ function UserContextPanel({ wallet }) {
         <Metric label="Balance" value={connectedOnBase ? `${wallet.balanceLabel} ETH` : "-"} accent />
         <Metric label="Risk" value="Balanced" />
         <Metric label="Autonomy" value="Disabled" />
+      </div>
+    </section>
+  );
+}
+
+function TokenIdentityPanel({ decision }) {
+  const token = decision?.tokenInfo;
+  const symbol = token?.symbol || "Token";
+  const name = token?.name || "Awaiting scan";
+  const address = token?.address || decision?.tokenAddress || decision?.token;
+  const logoText = symbol.slice(0, 3).toUpperCase();
+
+  return (
+    <section className="panel token-identity-panel">
+      <div className="panel-kicker">Token Identity</div>
+      <div className="token-head">
+        {token?.logo ? (
+          <img src={token.logo} alt="" />
+        ) : (
+          <div className="token-logo-fallback">{logoText}</div>
+        )}
+        <div>
+          <strong>{symbol}</strong>
+          <span>{name}</span>
+          <code>{address ? truncate(address, 12, 8) : "Scan a Base token"}</code>
+        </div>
+      </div>
+      <div className="token-metrics">
+        <Metric label="Price" value={formatUsd(token?.priceUsd)} />
+        <Metric label="Liquidity" value={formatUsd(token?.liquidityUsd)} accent />
+        <Metric label="Market Cap" value={formatUsd(token?.marketCapUsd)} />
+        <Metric label="Holders" value={formatCompactNumber(token?.holders, { fractionDigits: 1 })} />
+        <Metric label="Age" value={formatAge(token?.deployedAt || token?.age)} />
+        <Metric label="24h Volume" value={formatUsd(token?.volumeUsd24h)} />
+        <Metric label="Buy Vol" value={formatUsd(token?.buyVolumeUsd24h)} />
+        <Metric label="Sell Vol" value={formatUsd(token?.sellVolumeUsd24h)} />
       </div>
     </section>
   );
@@ -539,6 +601,7 @@ export default function App() {
         </div>
 
         <div className="center-stage">
+          <TokenIdentityPanel decision={lastDecision} />
           <DecisionPanel decision={lastDecision} />
           <SignalBreakdown breakdown={lastDecision?.breakdown} />
           <ReasonsPanel reasons={lastDecision?.reasons} />
