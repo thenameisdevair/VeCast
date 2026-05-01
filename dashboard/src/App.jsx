@@ -18,6 +18,15 @@ const DEMO_TOKENS = [
   { label: "DONNA", address: "0x61527cd3667243b0a80d41cb690237444e42a8d0" },
 ];
 
+const TICKER_ITEMS = [
+  "BASE MAINNET",
+  "NANSEN REST",
+  "RISK ENGINE",
+  "BUY / HOLD / BLOCK",
+  "AGENT WALLET",
+  "LIVE TOKEN SCAN",
+];
+
 function truncate(value, start = 6, end = 4) {
   if (!value) return "-";
   if (value.length <= start + end + 3) return value;
@@ -78,7 +87,26 @@ function PulseDot() {
   );
 }
 
-function Header({ agent }) {
+function ThemeToggle({ theme, onToggle }) {
+  const isDark = theme === "dark";
+  return (
+    <button className="theme-toggle" type="button" onClick={onToggle} aria-label="Toggle theme">
+      <span>{isDark ? "Light" : "Dark"}</span>
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        {isDark ? (
+          <>
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19" />
+          </>
+        ) : (
+          <path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.8 6.8 0 0 0 9.8 9.8Z" />
+        )}
+      </svg>
+    </button>
+  );
+}
+
+function Header({ agent, theme, onToggleTheme }) {
   return (
     <header className="topbar">
       <div className="brand-lockup">
@@ -97,6 +125,7 @@ function Header({ agent }) {
         <Metric label="Wallet" value={truncate(agent?.address, 7, 5)} mono />
         <Metric label="ETH" value={formatEth(agent?.balanceEth)} accent />
         <Metric label="Uptime" value={formatUptime(agent?.uptime || 0)} mono />
+        <ThemeToggle theme={theme} onToggle={onToggleTheme} />
       </div>
     </header>
   );
@@ -314,12 +343,61 @@ function StatsPanel({ decisions }) {
   );
 }
 
+function LandingPage({ theme, onToggleTheme, onEnter }) {
+  return (
+    <div className="landing-shell">
+      <header className="landing-topbar">
+        <div className="brand-lockup">
+          <VecastMark />
+          <div>
+            <div className="brand-name">VeCast</div>
+            <div className="brand-subtitle">Autonomous AI Economic Agent on Base</div>
+          </div>
+        </div>
+        <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+      </header>
+
+      <main className="landing-main">
+        <div className="landing-mark">
+          <VecastMark />
+        </div>
+        <h1>VeCast</h1>
+        <p>Live token intelligence, autonomous risk scoring, and transparent BUY / HOLD / BLOCK decisions for Base.</p>
+        <button type="button" onClick={onEnter}>
+          Open Dashboard
+        </button>
+        <div className="landing-status">
+          <PulseDot />
+          <span>BASE MAINNET · CONNECTED</span>
+        </div>
+      </main>
+
+      <div className="ticker-wrap" aria-hidden="true">
+        <div className="ticker-inner">
+          {[...TICKER_ITEMS, ...TICKER_ITEMS].map((item, index) => (
+            <span key={`${item}-${index}`}>{item}</span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
+  const [screen, setScreen] = useState("landing");
+  const [theme, setTheme] = useState(() => localStorage.getItem("vecast-theme") || "dark");
   const [agent, setAgent] = useState(null);
   const [decisions, setDecisions] = useState([]);
   const [lastDecision, setLastDecision] = useState(null);
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem("vecast-theme", theme);
+  }, [theme]);
+
+  const toggleTheme = () => setTheme((current) => (current === "dark" ? "light" : "dark"));
 
   useEffect(() => {
     const fetchDecisions = async () => {
@@ -378,7 +456,11 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <Header agent={agent} />
+      {screen === "landing" ? (
+        <LandingPage theme={theme} onToggleTheme={toggleTheme} onEnter={() => setScreen("dashboard")} />
+      ) : (
+        <>
+      <Header agent={agent} theme={theme} onToggleTheme={toggleTheme} />
       <main className="dashboard-grid">
         <div className="left-rail">
           <ScanPanel onScan={handleScan} scanning={scanning} lastDecision={lastDecision} error={error} />
@@ -396,6 +478,8 @@ export default function App() {
           <StatsPanel decisions={decisions} />
         </div>
       </main>
+        </>
+      )}
     </div>
   );
 }

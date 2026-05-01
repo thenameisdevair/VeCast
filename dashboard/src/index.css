@@ -9,6 +9,8 @@
   --surface: #0f172a;
   --surface-2: #111827;
   --surface-3: #0d1422;
+  --topbar: rgba(15, 23, 42, 0.92);
+  --page-gradient: linear-gradient(180deg, rgba(15, 23, 42, 0.88), rgba(10, 15, 26, 1) 38%);
   --text: #e2e8f0;
   --muted: #94a3b8;
   --faint: #475569;
@@ -19,6 +21,24 @@
   --hold: #f59e0b;
   --block: #ef4444;
   --radius: 12px;
+}
+
+[data-theme="light"] {
+  --bg: #f8fafc;
+  --surface: #eff6ff;
+  --surface-2: #ffffff;
+  --surface-3: #f8fbff;
+  --topbar: rgba(255, 255, 255, 0.92);
+  --page-gradient: linear-gradient(180deg, rgba(239, 246, 255, 0.92), rgba(248, 250, 252, 1) 42%);
+  --text: #0f172a;
+  --muted: #64748b;
+  --faint: #94a3b8;
+  --border: #cbd5e1;
+  --blue: #0284c7;
+  --orange: #ea580c;
+  --buy: #059669;
+  --hold: #d97706;
+  --block: #dc2626;
 }
 
 * {
@@ -33,9 +53,7 @@ body,
 
 body {
   margin: 0;
-  background:
-    linear-gradient(180deg, rgba(15, 23, 42, 0.88), rgba(10, 15, 26, 1) 38%),
-    var(--bg);
+  background: var(--page-gradient), var(--bg);
   color: var(--text);
   font-family: "IBM Plex Sans", sans-serif;
   overflow-x: hidden;
@@ -90,7 +108,7 @@ button:disabled {
   gap: 24px;
   padding: 14px 24px;
   border-bottom: 1px solid var(--border);
-  background: rgba(15, 23, 42, 0.92);
+  background: var(--topbar);
 }
 
 .brand-lockup {
@@ -210,6 +228,129 @@ button:disabled {
 
 .metric .metric-accent {
   color: var(--blue);
+}
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  padding: 7px 10px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.theme-toggle svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.landing-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.landing-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 22px 32px;
+}
+
+.landing-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 24px;
+  text-align: center;
+}
+
+.landing-mark {
+  width: 64px;
+  height: 64px;
+  margin-bottom: 28px;
+}
+
+.landing-mark .vecast-mark {
+  width: 64px;
+  height: 64px;
+}
+
+.landing-main h1 {
+  margin: 0;
+  color: var(--text);
+  font-size: clamp(44px, 7vw, 76px);
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 0.95;
+}
+
+.landing-main p {
+  width: min(560px, 100%);
+  margin: 18px 0 34px;
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 1.55;
+}
+
+.landing-main button {
+  border: 1px solid var(--orange);
+  border-radius: 10px;
+  background: var(--orange);
+  color: #fff7ed;
+  padding: 13px 30px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.landing-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 22px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  padding: 8px 14px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.ticker-wrap {
+  overflow: hidden;
+  border-top: 1px solid var(--border);
+  padding: 11px 0;
+  mask-image: linear-gradient(to right, transparent, black 8%, black 92%, transparent);
+}
+
+.ticker-inner {
+  display: flex;
+  width: max-content;
+  animation: ticker-scroll 32s linear infinite;
+}
+
+.ticker-inner span {
+  padding: 0 26px;
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  opacity: 0.62;
+  white-space: nowrap;
 }
 
 .dashboard-grid {
@@ -721,6 +862,15 @@ button:disabled {
   }
 }
 
+@keyframes ticker-scroll {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
 @media (max-width: 1120px) {
   .dashboard-grid {
     grid-template-columns: 300px 1fr;
@@ -753,6 +903,10 @@ button:disabled {
 
   .dashboard-grid {
     padding: 16px;
+  }
+
+  .landing-topbar {
+    padding: 18px 20px;
   }
 }
 
