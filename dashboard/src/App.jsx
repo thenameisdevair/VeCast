@@ -97,6 +97,11 @@ function displayToken(decision) {
   return address ? truncate(address, 12, 8) : null;
 }
 
+function getShareUrl(decision) {
+  if (!decision?.id || typeof window === "undefined") return "";
+  return `${window.location.origin}/scan/${decision.id}`;
+}
+
 function decisionMeta(decision) {
   if (decision === "BUY") return { className: "decision-buy", label: "BUY" };
   if (decision === "BLOCK") return { className: "decision-block", label: "BLOCK" };
@@ -371,6 +376,7 @@ function TokenIdentityPanel({ decision }) {
 function DecisionPanel({ decision }) {
   const meta = decisionMeta(decision?.decision);
   const score = decision?.score ?? 0;
+  const shareUrl = getShareUrl(decision);
 
   return (
     <section className={`decision-panel panel ${meta.className}`}>
@@ -388,6 +394,11 @@ function DecisionPanel({ decision }) {
         <span>higher risk</span>
       </div>
       <div className="decision-token mono">{displayToken(decision) || "Submit a Base token address to begin"}</div>
+      {shareUrl && (
+        <a className="share-scan-link" href={shareUrl}>
+          Share report
+        </a>
+      )}
     </section>
   );
 }
@@ -435,27 +446,68 @@ function ReasonsPanel({ reasons }) {
   );
 }
 
-function HistoryPanel({ decisions }) {
-  const history = decisions.slice(0, 12);
+function HistoryPanel({ decisions, pins, onTogglePin }) {
+  const [filter, setFilter] = useState("ALL");
+  const [query, setQuery] = useState("");
+
+  const history = decisions
+    .filter((item) => (filter === "ALL" ? true : item.decision === filter))
+    .filter((item) => {
+      const target = `${item.tokenInfo?.symbol || ""} ${item.tokenInfo?.name || ""} ${item.token || ""}`.toLowerCase();
+      return target.includes(query.trim().toLowerCase());
+    })
+    .sort((a, b) => Number(Boolean(pins[b.id])) - Number(Boolean(pins[a.id])))
+    .slice(0, 20);
+
+  const exportHistory = () => {
+    const blob = new Blob([JSON.stringify(history, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "vecast-scan-history.json";
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <section className="panel history-panel">
       <div className="panel-kicker">Scan History</div>
+      <div className="history-tools">
+        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search token" />
+        <select value={filter} onChange={(event) => setFilter(event.target.value)}>
+          <option value="ALL">All</option>
+          <option value="BUY">BUY</option>
+          <option value="HOLD">HOLD</option>
+          <option value="BLOCK">BLOCK</option>
+        </select>
+        <button type="button" onClick={exportHistory} disabled={!history.length}>
+          Export
+        </button>
+      </div>
       {!history.length ? (
         <p className="empty-copy">No decisions logged yet.</p>
       ) : (
         <div className="history-list">
           {history.map((item, index) => {
             const meta = decisionMeta(item.decision);
+            const shareUrl = getShareUrl(item);
             return (
               <div className="history-row" key={`${item.timestamp}-${item.token}-${index}`}>
+                <button
+                  className={`pin-button ${pins[item.id] ? "is-pinned" : ""}`}
+                  type="button"
+                  onClick={() => onTogglePin(item.id)}
+                  aria-label={pins[item.id] ? "Unpin scan" : "Pin scan"}
+                >
+                  {pins[item.id] ? "Pinned" : "Pin"}
+                </button>
                 <span className="mono token-cell">{displayToken(item) || "-"}</span>
                 <span className={`mini-badge ${meta.className}`}>{item.decision || item.type || "EVENT"}</span>
                 <strong>{item.riskScore ?? item.score ?? "--"}</strong>
                 <span className="mono time-cell">{formatTime(item.timestamp)}</span>
-                {item.txHash && (
-                  <a href={`https://basescan.org/tx/${item.txHash}`} target="_blank" rel="noreferrer">
-                    tx
+                {shareUrl && (
+                  <a href={shareUrl}>
+                    report
                   </a>
                 )}
               </div>
@@ -464,6 +516,61 @@ function HistoryPanel({ decisions }) {
         </div>
       )}
     </section>
+  );
+}
+
+function ShareReportPage({ scanId, theme, onToggleTheme, onBack }) {
+  const [decision, setDecision] = useState(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const fetchReport = async () => {
+      try {
+        const res = await fetch(`${API}/api/scan/${scanId}`);
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error || "Scan not found");
+        setDecision(data);
+      } catch (err) {
+        setError(err.message || "Scan not found");
+      }
+    };
+
+    fetchReport();
+  }, [scanId]);
+
+  return (
+    <>
+      <header className="topbar">
+        <div className="brand-lockup">
+          <VecastMark />
+          <div>
+            <div className="brand-name">VeCast</div>
+            <div className="brand-subtitle">Public Scan Report</div>
+          </div>
+        </div>
+        <div className="agent-strip">
+          <button className="wallet-button" type="button" onClick={onBack}>
+            Dashboard
+          </button>
+          <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+        </div>
+      </header>
+      <main className="share-report-shell">
+        {error ? (
+          <section className="panel">
+            <div className="panel-kicker">Scan Report</div>
+            <p className="empty-copy">{error}</p>
+          </section>
+        ) : (
+          <>
+            <TokenIdentityPanel decision={decision} />
+            <DecisionPanel decision={decision} />
+            <SignalBreakdown breakdown={decision?.breakdown} />
+            <ReasonsPanel reasons={decision?.reasons} />
+          </>
+        )}
+      </main>
+    </>
   );
 }
 
@@ -594,6 +701,14 @@ export default function App() {
   });
   const [session, setSession] = useState(null);
   const [sessionError, setSessionError] = useState("");
+  const [pins, setPins] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("vecast-pinned-scans") || "{}");
+    } catch {
+      return {};
+    }
+  });
+  const initialScanId = typeof window === "undefined" ? null : window.location.pathname.match(/^\/scan\/([^/]+)$/)?.[1] || null;
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -601,6 +716,16 @@ export default function App() {
   }, [theme]);
 
   const toggleTheme = () => setTheme((current) => (current === "dark" ? "light" : "dark"));
+
+  const togglePin = (id) => {
+    if (!id) return;
+    setPins((current) => {
+      const next = { ...current, [id]: !current[id] };
+      if (!next[id]) delete next[id];
+      localStorage.setItem("vecast-pinned-scans", JSON.stringify(next));
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (!wallet.address) {
@@ -752,7 +877,17 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      {screen === "landing" ? (
+      {initialScanId ? (
+        <ShareReportPage
+          scanId={initialScanId}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+          onBack={() => {
+            window.history.pushState({}, "", "/");
+            setScreen("dashboard");
+          }}
+        />
+      ) : screen === "landing" ? (
         <LandingPage theme={theme} onToggleTheme={toggleTheme} onEnter={openDashboard} onDemo={openDemoScan} />
       ) : (
         <>
@@ -774,7 +909,7 @@ export default function App() {
             onCustomRiskSettingsChange={setCustomRiskSettings}
           />
           <ScanPanel onScan={handleScan} scanning={scanning} lastDecision={lastDecision} error={error} />
-          <HistoryPanel decisions={decisions} />
+          <HistoryPanel decisions={decisions} pins={pins} onTogglePin={togglePin} />
         </div>
 
         <div className="center-stage">
