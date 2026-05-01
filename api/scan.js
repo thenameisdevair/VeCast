@@ -46,6 +46,30 @@ function normalizeRiskProfile(value) {
   return normalized;
 }
 
+function normalizeRiskSettings(value) {
+  if (!value || typeof value !== "object") return null;
+
+  const maxScoreForBuy = Number(value.maxScoreForBuy);
+  const maxScoreForHold = Number(value.maxScoreForHold);
+
+  if (
+    !Number.isFinite(maxScoreForBuy) ||
+    !Number.isFinite(maxScoreForHold) ||
+    maxScoreForBuy < 0 ||
+    maxScoreForBuy > maxScoreForHold ||
+    maxScoreForHold > 100
+  ) {
+    throw Object.assign(new Error("riskSettings must include valid maxScoreForBuy and maxScoreForHold values"), {
+      statusCode: 400,
+    });
+  }
+
+  return {
+    maxScoreForBuy,
+    maxScoreForHold,
+  };
+}
+
 function pickNumber(...values) {
   for (const value of values) {
     const number = Number(value);
@@ -88,13 +112,17 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { tokenAddress, walletAddress, riskProfile } = parseBody(req);
+    const { tokenAddress, walletAddress, riskProfile, riskSettings } = parseBody(req);
     const normalizedTokenAddress = normalizeAddress(tokenAddress, "tokenAddress");
     const normalizedWalletAddress = walletAddress ? normalizeAddress(walletAddress, "walletAddress") : null;
     const normalizedRiskProfile = normalizeRiskProfile(riskProfile);
+    const normalizedRiskSettings = normalizeRiskSettings(riskSettings);
 
     const rawData = await scan(normalizedTokenAddress);
-    const scoreResult = score(rawData.raw);
+    const scoreResult = score(rawData.raw, {
+      riskProfile: normalizedRiskProfile,
+      riskSettings: normalizedRiskSettings,
+    });
     const token = extractToken(rawData.raw, normalizedTokenAddress);
     const decision = {
       token: normalizedTokenAddress,
@@ -102,6 +130,8 @@ export default async function handler(req, res) {
       tokenInfo: token,
       walletAddress: normalizedWalletAddress,
       riskProfile: normalizedRiskProfile,
+      riskSettings: normalizedRiskSettings,
+      thresholds: scoreResult.thresholds,
       score: scoreResult.score,
       riskScore: scoreResult.score,
       decision: scoreResult.decision,

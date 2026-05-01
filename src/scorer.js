@@ -10,7 +10,25 @@
  *   61-100 → BLOCK
  */
 
-export function score(raw) {
+const PROFILE_THRESHOLDS = {
+  conservative: { buy: 25, hold: 50 },
+  balanced: { buy: 35, hold: 60 },
+  aggressive: { buy: 45, hold: 70 },
+};
+
+function resolveThresholds(options = {}) {
+  if (options.riskProfile === "custom" && options.riskSettings) {
+    const buy = Number(options.riskSettings.maxScoreForBuy);
+    const hold = Number(options.riskSettings.maxScoreForHold);
+    if (Number.isFinite(buy) && Number.isFinite(hold) && buy >= 0 && buy <= hold && hold <= 100) {
+      return { buy, hold };
+    }
+  }
+
+  return PROFILE_THRESHOLDS[options.riskProfile] || PROFILE_THRESHOLDS.balanced;
+}
+
+export function score(raw, options = {}) {
   const reasons = [];
   let totalScore = 0;
 
@@ -26,11 +44,13 @@ export function score(raw) {
                distributionScore + pnlScore + buySellScore;
 
   const finalScore = Math.min(100, Math.max(0, Math.round(totalScore)));
-  const decision = finalScore <= 35 ? "BUY" : finalScore <= 60 ? "HOLD" : "BLOCK";
+  const thresholds = resolveThresholds(options);
+  const decision = finalScore <= thresholds.buy ? "BUY" : finalScore <= thresholds.hold ? "HOLD" : "BLOCK";
 
   return {
     score: finalScore,
     decision,
+    thresholds,
     reasons,
     breakdown: {
       holderConcentration: holderScore,

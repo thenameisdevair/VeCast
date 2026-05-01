@@ -28,6 +28,13 @@ const TICKER_ITEMS = [
   "LIVE TOKEN SCAN",
 ];
 
+const RISK_PROFILES = {
+  conservative: { label: "Conservative", buy: 25, hold: 50 },
+  balanced: { label: "Balanced", buy: 35, hold: 60 },
+  aggressive: { label: "Aggressive", buy: 45, hold: 70 },
+  custom: { label: "Custom", buy: 35, hold: 60 },
+};
+
 const DEFAULT_RISK_PROFILE = "balanced";
 
 function truncate(value, start = 6, end = 4) {
@@ -225,8 +232,9 @@ function ScanPanel({ onScan, scanning, lastDecision, error }) {
   );
 }
 
-function UserContextPanel({ wallet }) {
+function UserContextPanel({ wallet, riskProfile }) {
   const connectedOnBase = wallet.isConnected && wallet.isBase;
+  const profile = RISK_PROFILES[riskProfile] || RISK_PROFILES.balanced;
 
   return (
     <section className={`panel user-context-panel ${connectedOnBase ? "is-connected" : "is-demo"}`}>
@@ -241,8 +249,77 @@ function UserContextPanel({ wallet }) {
       <div className="context-grid">
         <Metric label="Network" value={wallet.isConnected ? (wallet.isBase ? "Base" : "Wrong chain") : "Base preview"} />
         <Metric label="Balance" value={connectedOnBase ? `${wallet.balanceLabel} ETH` : "-"} accent />
-        <Metric label="Risk" value="Balanced" />
+        <Metric label="Risk" value={profile.label} />
         <Metric label="Autonomy" value="Disabled" />
+      </div>
+    </section>
+  );
+}
+
+function RiskProfilePanel({ riskProfile, customRiskSettings, onRiskProfileChange, onCustomRiskSettingsChange }) {
+  const selected = RISK_PROFILES[riskProfile] || RISK_PROFILES.balanced;
+  const buy = riskProfile === "custom" ? customRiskSettings.maxScoreForBuy : selected.buy;
+  const hold = riskProfile === "custom" ? customRiskSettings.maxScoreForHold : selected.hold;
+
+  const updateCustom = (key, value) => {
+    const nextValue = Number(value);
+    onCustomRiskSettingsChange((current) => {
+      const next = { ...current, [key]: nextValue };
+      if (key === "maxScoreForBuy" && next.maxScoreForBuy > next.maxScoreForHold) {
+        next.maxScoreForHold = next.maxScoreForBuy;
+      }
+      if (key === "maxScoreForHold" && next.maxScoreForHold < next.maxScoreForBuy) {
+        next.maxScoreForBuy = next.maxScoreForHold;
+      }
+      return next;
+    });
+  };
+
+  return (
+    <section className="panel risk-profile-panel">
+      <div className="panel-kicker">Risk Preferences</div>
+      <div className="risk-profile-options">
+        {Object.entries(RISK_PROFILES).map(([key, profile]) => (
+          <button
+            key={key}
+            className={riskProfile === key ? "is-selected" : ""}
+            type="button"
+            onClick={() => onRiskProfileChange(key)}
+          >
+            {profile.label}
+          </button>
+        ))}
+      </div>
+
+      {riskProfile === "custom" && (
+        <div className="custom-risk-controls">
+          <label>
+            <span>BUY max</span>
+            <input
+              min="0"
+              max="100"
+              type="number"
+              value={customRiskSettings.maxScoreForBuy}
+              onChange={(event) => updateCustom("maxScoreForBuy", event.target.value)}
+            />
+          </label>
+          <label>
+            <span>HOLD max</span>
+            <input
+              min="0"
+              max="100"
+              type="number"
+              value={customRiskSettings.maxScoreForHold}
+              onChange={(event) => updateCustom("maxScoreForHold", event.target.value)}
+            />
+          </label>
+        </div>
+      )}
+
+      <div className="risk-thresholds">
+        <span>BUY &lt;= {buy}</span>
+        <span>HOLD &lt;= {hold}</span>
+        <span>BLOCK &gt; {hold}</span>
       </div>
     </section>
   );
@@ -502,6 +579,11 @@ export default function App() {
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState("");
   const [queuedDemoScan, setQueuedDemoScan] = useState(false);
+  const [riskProfile, setRiskProfile] = useState(DEFAULT_RISK_PROFILE);
+  const [customRiskSettings, setCustomRiskSettings] = useState({
+    maxScoreForBuy: RISK_PROFILES.custom.buy,
+    maxScoreForHold: RISK_PROFILES.custom.hold,
+  });
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -550,8 +632,12 @@ export default function App() {
     try {
       const payload = {
         tokenAddress,
-        riskProfile: DEFAULT_RISK_PROFILE,
+        riskProfile,
       };
+
+      if (riskProfile === "custom") {
+        payload.riskSettings = customRiskSettings;
+      }
 
       if (wallet.isConnected && wallet.isBase && wallet.address) {
         payload.walletAddress = wallet.address;
@@ -595,7 +681,13 @@ export default function App() {
       <Header agent={agent} wallet={wallet} theme={theme} onToggleTheme={toggleTheme} />
       <main className="dashboard-grid">
         <div className="left-rail">
-          <UserContextPanel wallet={wallet} />
+          <UserContextPanel wallet={wallet} riskProfile={riskProfile} />
+          <RiskProfilePanel
+            riskProfile={riskProfile}
+            customRiskSettings={customRiskSettings}
+            onRiskProfileChange={setRiskProfile}
+            onCustomRiskSettingsChange={setCustomRiskSettings}
+          />
           <ScanPanel onScan={handleScan} scanning={scanning} lastDecision={lastDecision} error={error} />
           <HistoryPanel decisions={decisions} />
         </div>
