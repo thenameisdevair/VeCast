@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { ConnectWalletButton, useWalletSummary } from "./wallet/ConnectWalletButton.jsx";
 
 const API = "";
 
@@ -116,6 +117,8 @@ function ThemeToggle({ theme, onToggle }) {
 }
 
 function Header({ agent, theme, onToggleTheme }) {
+  const wallet = useWalletSummary();
+
   return (
     <header className="topbar">
       <div className="brand-lockup">
@@ -129,11 +132,12 @@ function Header({ agent, theme, onToggleTheme }) {
       <div className="agent-strip">
         <div className="status-chip">
           <PulseDot />
-          <span>{agent ? "Connected" : "Connecting"}</span>
+          <span>{wallet.isConnected ? (wallet.isBase ? "Base" : "Wrong Chain") : "Demo Mode"}</span>
         </div>
-        <Metric label="Wallet" value={truncate(agent?.address, 7, 5)} mono />
-        <Metric label="ETH" value={formatEth(agent?.balanceEth)} accent />
-        <Metric label="Uptime" value={formatUptime(agent?.uptime || 0)} mono />
+        <Metric label="Wallet" value={wallet.address ? truncate(wallet.address, 7, 5) : "Not connected"} mono />
+        <Metric label="ETH" value={wallet.isConnected ? wallet.balanceLabel : "-"} accent />
+        <Metric label="Agent" value={agent ? "Online" : "Offline"} mono />
+        <ConnectWalletButton />
         <ThemeToggle theme={theme} onToggle={onToggleTheme} />
       </div>
     </header>

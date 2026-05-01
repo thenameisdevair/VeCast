@@ -253,6 +253,44 @@ button:disabled {
   stroke-width: 2;
 }
 
+.wallet-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wallet-button,
+.wallet-pill {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  padding: 7px 10px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.wallet-button.is-primary {
+  border-color: var(--orange);
+  background: var(--orange);
+  color: #fff7ed;
+}
+
+.wallet-button.is-warning {
+  border-color: var(--hold);
+  color: var(--hold);
+}
+
+.wallet-button:disabled {
+  opacity: 0.7;
+}
+
 .landing-shell {
   min-height: 100vh;
   display: flex;
