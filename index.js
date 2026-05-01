@@ -9,7 +9,6 @@ import yargs       from "yargs";
 import { hideBin } from "yargs/helpers";
 import chalk       from "chalk";
 import { runScan, runTrade, watchLoop } from "./src/agent.js";
-import { startAcpProvider }            from "./src/acp.js";
 import { readLog }                     from "./src/logger.js";
 import { checkBalance }                from "./src/executor.js";
 
@@ -100,6 +99,7 @@ yargs(hideBin(process.argv))
     () => {},
     async () => {
       try {
+        const { startAcpProvider } = await import("./src/acp.js");
         await startAcpProvider();
       } catch (err) {
         console.error(chalk.red(`Error: ${err.message}`));
