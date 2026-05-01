@@ -1,6 +1,9 @@
+import { getAddress, isAddress } from "ethers";
 import { scan } from "../src/scanner.js";
 import { score } from "../src/scorer.js";
 import { addDecision } from "./_memory.js";
+
+const RISK_PROFILES = new Set(["conservative", "balanced", "aggressive", "custom"]);
 
 function parseBody(req) {
   if (!req.body) return {};
@@ -14,23 +17,84 @@ function parseBody(req) {
   return req.body;
 }
 
+function normalizeAddress(value, fieldName) {
+  if (typeof value !== "string" || !value.trim()) {
+    throw Object.assign(new Error(`${fieldName} required`), { statusCode: 400 });
+  }
+
+  const trimmed = value.trim();
+  if (!isAddress(trimmed)) {
+    throw Object.assign(new Error(`${fieldName} must be a valid EVM address`), { statusCode: 400 });
+  }
+
+  return getAddress(trimmed);
+}
+
+function normalizeRiskProfile(value) {
+  if (value === undefined || value === null || value === "") return "balanced";
+  if (typeof value !== "string") {
+    throw Object.assign(new Error("riskProfile must be a string"), { statusCode: 400 });
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (!RISK_PROFILES.has(normalized)) {
+    throw Object.assign(new Error("riskProfile must be conservative, balanced, aggressive, or custom"), {
+      statusCode: 400,
+    });
+  }
+
+  return normalized;
+}
+
+function pickNumber(...values) {
+  for (const value of values) {
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return null;
+}
+
+function extractToken(raw, tokenAddress) {
+  const info = raw?.info || {};
+  const details = info.token_details || {};
+  const spot = info.spot_metrics || {};
+
+  return {
+    address: tokenAddress,
+    name: details.name ?? info.name ?? null,
+    symbol: details.symbol ?? info.symbol ?? null,
+    logo: details.logo_url ?? details.logo ?? info.logo_url ?? info.logo ?? null,
+    priceUsd: pickNumber(spot.price_usd, spot.token_price_usd, details.price_usd),
+    marketCapUsd: pickNumber(details.market_cap_usd, spot.market_cap_usd),
+    liquidityUsd: pickNumber(spot.liquidity_usd, details.liquidity_usd),
+    holders: pickNumber(spot.total_holders, details.total_holders),
+    volumeUsd24h: pickNumber(spot.volume_total_usd, spot.volume_usd, details.volume_usd),
+  };
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { tokenAddress } = parseBody(req);
-  if (!tokenAddress) {
-    return res.status(400).json({ error: "tokenAddress required" });
-  }
-
   try {
-    const rawData = await scan(tokenAddress);
+    const { tokenAddress, walletAddress, riskProfile } = parseBody(req);
+    const normalizedTokenAddress = normalizeAddress(tokenAddress, "tokenAddress");
+    const normalizedWalletAddress = walletAddress ? normalizeAddress(walletAddress, "walletAddress") : null;
+    const normalizedRiskProfile = normalizeRiskProfile(riskProfile);
+
+    const rawData = await scan(normalizedTokenAddress);
     const scoreResult = score(rawData.raw);
+    const token = extractToken(rawData.raw, normalizedTokenAddress);
     const decision = {
-      token: tokenAddress,
+      token: normalizedTokenAddress,
+      tokenAddress: normalizedTokenAddress,
+      tokenInfo: token,
+      walletAddress: normalizedWalletAddress,
+      riskProfile: normalizedRiskProfile,
       score: scoreResult.score,
+      riskScore: scoreResult.score,
       decision: scoreResult.decision,
       reasons: scoreResult.reasons,
       breakdown: scoreResult.breakdown,
@@ -41,6 +105,6 @@ export default async function handler(req, res) {
     addDecision(decision);
     res.status(200).json(decision);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message || "Scan failed" });
   }
 }

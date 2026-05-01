@@ -27,6 +27,8 @@ const TICKER_ITEMS = [
   "LIVE TOKEN SCAN",
 ];
 
+const DEFAULT_RISK_PROFILE = "balanced";
+
 function truncate(value, start = 6, end = 4) {
   if (!value) return "-";
   if (value.length <= start + end + 3) return value;
@@ -51,6 +53,13 @@ function formatEth(value) {
 function formatTime(timestamp) {
   if (!timestamp) return "-";
   return new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function displayToken(decision) {
+  const symbol = decision?.tokenInfo?.symbol;
+  const address = decision?.tokenAddress || decision?.token;
+  if (symbol && address) return `${symbol} · ${truncate(address, 10, 6)}`;
+  return address ? truncate(address, 12, 8) : null;
 }
 
 function decisionMeta(decision) {
@@ -182,7 +191,7 @@ function ScanPanel({ onScan, scanning, lastDecision, error }) {
 
       <div className="last-scanned">
         <span>Last scanned</span>
-        <strong>{lastDecision?.token ? truncate(lastDecision.token, 12, 8) : "Awaiting token"}</strong>
+        <strong>{displayToken(lastDecision) || "Awaiting token"}</strong>
       </div>
     </section>
   );
@@ -195,14 +204,19 @@ function DecisionPanel({ decision }) {
   return (
     <section className={`decision-panel panel ${meta.className}`}>
       <div className="decision-word">{decision ? meta.label : "READY"}</div>
+      <div className="risk-score-label">Risk score</div>
       <div className="decision-score">
         <strong>{decision ? score : "--"}</strong>
-        <span>/ 100</span>
+        <span>/ 100 danger</span>
       </div>
       <div className="score-track">
         <span style={{ width: decision ? `${Math.min(100, score)}%` : "0%" }} />
       </div>
-      <div className="decision-token mono">{decision?.token || "Submit a Base token address to begin"}</div>
+      <div className="risk-scale-labels">
+        <span>lower risk</span>
+        <span>higher risk</span>
+      </div>
+      <div className="decision-token mono">{displayToken(decision) || "Submit a Base token address to begin"}</div>
     </section>
   );
 }
@@ -264,9 +278,9 @@ function HistoryPanel({ decisions }) {
             const meta = decisionMeta(item.decision);
             return (
               <div className="history-row" key={`${item.timestamp}-${item.token}-${index}`}>
-                <span className="mono token-cell">{truncate(item.token, 8, 6)}</span>
+                <span className="mono token-cell">{displayToken(item) || "-"}</span>
                 <span className={`mini-badge ${meta.className}`}>{item.decision || item.type || "EVENT"}</span>
-                <strong>{item.score ?? "--"}</strong>
+                <strong>{item.riskScore ?? item.score ?? "--"}</strong>
                 <span className="mono time-cell">{formatTime(item.timestamp)}</span>
                 {item.txHash && (
                   <a href={`https://basescan.org/tx/${item.txHash}`} target="_blank" rel="noreferrer">
@@ -294,8 +308,11 @@ function AgentLog({ lastDecision, scanning }) {
     if (!lastDecision) return base;
 
     return [
-      { type: lastDecision.decision?.toLowerCase() || "info", text: `Decision ${lastDecision.decision} (${lastDecision.score}/100)` },
-      { type: "info", text: `Token ${truncate(lastDecision.token, 10, 8)}` },
+      {
+        type: lastDecision.decision?.toLowerCase() || "info",
+        text: `Decision ${lastDecision.decision} (risk ${lastDecision.riskScore ?? lastDecision.score}/100)`,
+      },
+      { type: "info", text: `Token ${displayToken(lastDecision)}` },
       ...base,
     ];
   }, [lastDecision, scanning]);
@@ -440,7 +457,10 @@ export default function App() {
       const res = await fetch(`${API}/api/scan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tokenAddress }),
+        body: JSON.stringify({
+          tokenAddress,
+          riskProfile: DEFAULT_RISK_PROFILE,
+        }),
       });
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || "Scan failed");
