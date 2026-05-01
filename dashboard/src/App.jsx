@@ -263,6 +263,7 @@ function UserContextPanel({ wallet, riskProfile, session, signingIn, onSignIn })
         <Metric label="Balance" value={connectedOnBase ? `${wallet.balanceLabel} ETH` : "-"} accent />
         <Metric label="Risk" value={profile.label} />
         <Metric label="Session" value={session?.token ? "Signed" : "Unsigned"} />
+        <Metric label="Autonomy" value="Manual only" />
       </div>
     </section>
   );
