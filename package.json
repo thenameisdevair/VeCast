@@ -6,7 +6,8 @@
     "start": "node index.js",
     "server": "node src/server.js",
     "dashboard": "cd dashboard && npm run dev",
-    "dev": "concurrently \"npm run server\" \"npm run dashboard\""
+    "dev": "concurrently \"npm run server\" \"npm run dashboard\"",
+    "build": "cd dashboard && npm install && npm run build"
   },
   "bin": {
     "vecast": "./index.js"
@@ -27,6 +28,6 @@
     "concurrently": "^8"
   },
   "engines": {
-    "node": ">=18"
+    "node": "20.x"
   }
 }
