@@ -1,7 +1,8 @@
 import { getAddress, isAddress } from "ethers";
 import { scan } from "../src/scanner.js";
 import { score } from "../src/scorer.js";
-import { addDecision, getSession } from "./_store.js";
+import { checkRateLimit, getClientIp } from "./_rateLimit.js";
+import { addDecision, getSession, logRequest } from "./_store.js";
 
 const RISK_PROFILES = new Set(["conservative", "balanced", "aggressive", "custom"]);
 
@@ -105,18 +106,27 @@ function extractToken(raw, tokenAddress) {
   };
 }
 
-async function getAuthenticatedWallet(req, walletAddress) {
-  if (!walletAddress) return null;
+async function getSessionFromRequest(req) {
   const header = req.headers?.authorization || req.headers?.Authorization || "";
   const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length).trim() : "";
-  const session = await getSession(token);
+  return getSession(token);
+}
+
+function getAuthenticatedWallet(session, walletAddress) {
+  if (!walletAddress) return null;
   if (!session) return null;
   return session.walletAddress === walletAddress.toLowerCase() ? walletAddress : null;
 }
 
 export default async function handler(req, res) {
+  const startedAt = Date.now();
+  const ipAddress = getClientIp(req);
+  let statusCode = 200;
+  let logWalletAddress = null;
+
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
+    statusCode = 405;
     return res.status(405).json({ error: "Method not allowed" });
   }
 
@@ -124,7 +134,22 @@ export default async function handler(req, res) {
     const { tokenAddress, walletAddress, riskProfile, riskSettings } = parseBody(req);
     const normalizedTokenAddress = normalizeAddress(tokenAddress, "tokenAddress");
     const normalizedWalletAddress = walletAddress ? normalizeAddress(walletAddress, "walletAddress") : null;
-    const authenticatedWalletAddress = await getAuthenticatedWallet(req, normalizedWalletAddress);
+    const session = await getSessionFromRequest(req);
+    const authenticatedWalletAddress = getAuthenticatedWallet(session, normalizedWalletAddress);
+    logWalletAddress = authenticatedWalletAddress || session?.walletAddress || null;
+
+    const rate = checkRateLimit({
+      key: session?.walletAddress || ipAddress,
+      authenticated: Boolean(session),
+    });
+    res.setHeader("X-RateLimit-Limit", String(rate.limit));
+    res.setHeader("X-RateLimit-Remaining", String(rate.remaining));
+    res.setHeader("X-RateLimit-Reset", String(Math.ceil(rate.resetAt / 1000)));
+    if (!rate.allowed) {
+      statusCode = 429;
+      return res.status(429).json({ error: "Rate limit exceeded" });
+    }
+
     const normalizedRiskProfile = normalizeRiskProfile(riskProfile);
     const normalizedRiskSettings = normalizeRiskSettings(riskSettings);
 
@@ -154,8 +179,22 @@ export default async function handler(req, res) {
     };
 
     const storedDecision = await addDecision(decision);
+    statusCode = 200;
     res.status(200).json(storedDecision);
   } catch (err) {
-    res.status(err.statusCode || 500).json({ error: err.message || "Scan failed" });
+    statusCode = err.statusCode || 500;
+    res.status(statusCode).json({ error: err.message || "Scan failed" });
+  } finally {
+    logRequest({
+      path: "/api/scan",
+      method: req.method,
+      ipAddress,
+      walletAddress: logWalletAddress,
+      statusCode,
+      durationMs: Date.now() - startedAt,
+      metadata: {
+        rateLimited: statusCode === 429,
+      },
+    }).catch(() => {});
   }
 }

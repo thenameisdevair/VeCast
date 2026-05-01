@@ -85,6 +85,21 @@ async function ensureSchema() {
         created_at timestamptz not null default now(),
         last_seen_at timestamptz not null default now()
       );
+
+      create table if not exists request_logs (
+        id text primary key default md5(random()::text || clock_timestamp()::text),
+        path text not null,
+        method text not null,
+        ip_address text,
+        wallet_address text,
+        status_code integer not null,
+        duration_ms integer not null,
+        metadata_json jsonb not null default '{}'::jsonb,
+        created_at timestamptz not null default now()
+      );
+
+      create index if not exists request_logs_created_idx
+        on request_logs (created_at desc);
     `);
   }
   await schemaReady;
@@ -387,4 +402,33 @@ export async function getSession(token) {
     walletAddress: row.wallet_address,
     expiresAt: row.expires_at,
   };
+}
+
+export async function logRequest(entry) {
+  const pool = await ensureSchema();
+  if (!pool) return;
+
+  await pool.query(
+    `
+      insert into request_logs (
+        path,
+        method,
+        ip_address,
+        wallet_address,
+        status_code,
+        duration_ms,
+        metadata_json
+      )
+      values ($1, $2, $3, $4, $5, $6, $7::jsonb)
+    `,
+    [
+      entry.path,
+      entry.method,
+      entry.ipAddress || null,
+      entry.walletAddress?.toLowerCase() || null,
+      entry.statusCode,
+      entry.durationMs,
+      JSON.stringify(entry.metadata || {}),
+    ]
+  );
 }
