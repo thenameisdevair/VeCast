@@ -49,7 +49,11 @@ export async function executeBuy(tokenAddress, score) {
     );
   }
 
-  const provider  = new ethers.JsonRpcProvider(rpcUrl);
+  const provider = new ethers.JsonRpcProvider(rpcUrl, undefined, {
+    staticNetwork: await ethers.Network.from(8453),
+    polling: true,
+    pollingInterval: 4000,
+  });
   const signer    = new ethers.Wallet(privateKey, provider);
   const balance   = await provider.getBalance(signer.address);
   const spendWei  = ethers.parseEther(maxSpendEth);
@@ -103,7 +107,11 @@ export async function checkBalance() {
     throw new Error("[executor] Missing AGENT_PRIVATE_KEY or RPC_URL in .env");
   }
 
-  const provider = new ethers.JsonRpcProvider(rpcUrl);
+  const provider = new ethers.JsonRpcProvider(rpcUrl, undefined, {
+    staticNetwork: await ethers.Network.from(8453),
+    polling: true,
+    pollingInterval: 4000,
+  });
   const signer   = new ethers.Wallet(privateKey, provider);
   const balance  = await provider.getBalance(signer.address);
 
