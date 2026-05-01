@@ -1,7 +1,7 @@
 import { getAddress, isAddress } from "ethers";
 import { scan } from "../src/scanner.js";
 import { score } from "../src/scorer.js";
-import { addDecision } from "./_store.js";
+import { addDecision, getSession } from "./_store.js";
 
 const RISK_PROFILES = new Set(["conservative", "balanced", "aggressive", "custom"]);
 
@@ -105,6 +105,15 @@ function extractToken(raw, tokenAddress) {
   };
 }
 
+async function getAuthenticatedWallet(req, walletAddress) {
+  if (!walletAddress) return null;
+  const header = req.headers?.authorization || req.headers?.Authorization || "";
+  const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length).trim() : "";
+  const session = await getSession(token);
+  if (!session) return null;
+  return session.walletAddress === walletAddress.toLowerCase() ? walletAddress : null;
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
@@ -115,6 +124,7 @@ export default async function handler(req, res) {
     const { tokenAddress, walletAddress, riskProfile, riskSettings } = parseBody(req);
     const normalizedTokenAddress = normalizeAddress(tokenAddress, "tokenAddress");
     const normalizedWalletAddress = walletAddress ? normalizeAddress(walletAddress, "walletAddress") : null;
+    const authenticatedWalletAddress = await getAuthenticatedWallet(req, normalizedWalletAddress);
     const normalizedRiskProfile = normalizeRiskProfile(riskProfile);
     const normalizedRiskSettings = normalizeRiskSettings(riskSettings);
 
@@ -129,7 +139,8 @@ export default async function handler(req, res) {
       token: normalizedTokenAddress,
       tokenAddress: normalizedTokenAddress,
       tokenInfo: token,
-      walletAddress: normalizedWalletAddress,
+      walletAddress: authenticatedWalletAddress,
+      userContextAuthenticated: Boolean(authenticatedWalletAddress),
       riskProfile: normalizedRiskProfile,
       riskSettings: normalizedRiskSettings,
       thresholds: scoreResult.thresholds,

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useSignMessage } from "wagmi";
 import { ConnectWalletButton, useWalletSummary } from "./wallet/ConnectWalletButton.jsx";
 
 const API = "";
@@ -232,7 +233,7 @@ function ScanPanel({ onScan, scanning, lastDecision, error }) {
   );
 }
 
-function UserContextPanel({ wallet, riskProfile }) {
+function UserContextPanel({ wallet, riskProfile, session, signingIn, onSignIn }) {
   const connectedOnBase = wallet.isConnected && wallet.isBase;
   const profile = RISK_PROFILES[riskProfile] || RISK_PROFILES.balanced;
 
@@ -244,13 +245,19 @@ function UserContextPanel({ wallet, riskProfile }) {
           <strong>{connectedOnBase ? "Connected Wallet" : "Public Demo Mode"}</strong>
           <span>{connectedOnBase ? truncate(wallet.address, 10, 8) : "Connect a wallet for personal scan history"}</span>
         </div>
-        <ConnectWalletButton />
+        {connectedOnBase && !session?.token ? (
+          <button className="wallet-button is-primary" type="button" onClick={onSignIn} disabled={signingIn}>
+            {signingIn ? "Signing" : "Sign In"}
+          </button>
+        ) : (
+          <ConnectWalletButton />
+        )}
       </div>
       <div className="context-grid">
         <Metric label="Network" value={wallet.isConnected ? (wallet.isBase ? "Base" : "Wrong chain") : "Base preview"} />
         <Metric label="Balance" value={connectedOnBase ? `${wallet.balanceLabel} ETH` : "-"} accent />
         <Metric label="Risk" value={profile.label} />
-        <Metric label="Autonomy" value="Disabled" />
+        <Metric label="Session" value={session?.token ? "Signed" : "Unsigned"} />
       </div>
     </section>
   );
@@ -571,6 +578,7 @@ function LandingPage({ theme, onToggleTheme, onEnter, onDemo }) {
 
 export default function App() {
   const wallet = useWalletSummary();
+  const { signMessageAsync, isPending: signingMessage } = useSignMessage();
   const [screen, setScreen] = useState("landing");
   const [theme, setTheme] = useState(() => localStorage.getItem("vecast-theme") || "dark");
   const [agent, setAgent] = useState(null);
@@ -584,6 +592,8 @@ export default function App() {
     maxScoreForBuy: RISK_PROFILES.custom.buy,
     maxScoreForHold: RISK_PROFILES.custom.hold,
   });
+  const [session, setSession] = useState(null);
+  const [sessionError, setSessionError] = useState("");
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -593,14 +603,74 @@ export default function App() {
   const toggleTheme = () => setTheme((current) => (current === "dark" ? "light" : "dark"));
 
   useEffect(() => {
+    if (!wallet.address) {
+      setSession(null);
+      return;
+    }
+
+    const stored = localStorage.getItem(`vecast-session:${wallet.address.toLowerCase()}`);
+    if (!stored) {
+      setSession(null);
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(stored);
+      if (new Date(parsed.expiresAt).getTime() > Date.now()) {
+        setSession(parsed);
+      } else {
+        localStorage.removeItem(`vecast-session:${wallet.address.toLowerCase()}`);
+        setSession(null);
+      }
+    } catch {
+      setSession(null);
+    }
+  }, [wallet.address]);
+
+  const signIn = async () => {
+    if (!wallet.address || !wallet.isBase) return;
+    setSessionError("");
+
+    try {
+      const nonceRes = await fetch(`${API}/api/auth/nonce`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ walletAddress: wallet.address }),
+      });
+      const challenge = await nonceRes.json();
+      if (!nonceRes.ok || challenge.error) throw new Error(challenge.error || "Sign-in challenge failed");
+
+      const signature = await signMessageAsync({ message: challenge.message });
+      const verifyRes = await fetch(`${API}/api/auth/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          walletAddress: wallet.address,
+          nonce: challenge.nonce,
+          message: challenge.message,
+          signature,
+        }),
+      });
+      const nextSession = await verifyRes.json();
+      if (!verifyRes.ok || nextSession.error) throw new Error(nextSession.error || "Sign-in failed");
+
+      localStorage.setItem(`vecast-session:${wallet.address.toLowerCase()}`, JSON.stringify(nextSession));
+      setSession(nextSession);
+    } catch (err) {
+      setSessionError(err.message || "Sign-in failed");
+    }
+  };
+
+  useEffect(() => {
     const fetchDecisions = async () => {
       try {
         const params = new URLSearchParams();
-        if (wallet.isConnected && wallet.isBase && wallet.address) {
+        if (wallet.isConnected && wallet.isBase && wallet.address && session?.token) {
           params.set("walletAddress", wallet.address);
         }
         const query = params.toString();
-        const res = await fetch(`${API}/api/decisions${query ? `?${query}` : ""}`);
+        const headers = session?.token ? { Authorization: `Bearer ${session.token}` } : {};
+        const res = await fetch(`${API}/api/decisions${query ? `?${query}` : ""}`, { headers });
         const data = await res.json();
         setDecisions(Array.isArray(data) ? data : []);
         if (Array.isArray(data) && data.length > 0) setLastDecision(data[0]);
@@ -612,7 +682,7 @@ export default function App() {
     fetchDecisions();
     const interval = setInterval(fetchDecisions, 5000);
     return () => clearInterval(interval);
-  }, [wallet.address, wallet.isBase, wallet.isConnected]);
+  }, [session?.token, wallet.address, wallet.isBase, wallet.isConnected]);
 
   useEffect(() => {
     const fetchAgent = async () => {
@@ -644,13 +714,16 @@ export default function App() {
         payload.riskSettings = customRiskSettings;
       }
 
-      if (wallet.isConnected && wallet.isBase && wallet.address) {
+      if (wallet.isConnected && wallet.isBase && wallet.address && session?.token) {
         payload.walletAddress = wallet.address;
       }
 
       const res = await fetch(`${API}/api/scan`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.token ? { Authorization: `Bearer ${session.token}` } : {}),
+        },
         body: JSON.stringify(payload),
       });
       const data = await res.json();
@@ -686,7 +759,14 @@ export default function App() {
       <Header agent={agent} wallet={wallet} theme={theme} onToggleTheme={toggleTheme} />
       <main className="dashboard-grid">
         <div className="left-rail">
-          <UserContextPanel wallet={wallet} riskProfile={riskProfile} />
+          <UserContextPanel
+            wallet={wallet}
+            riskProfile={riskProfile}
+            session={session}
+            signingIn={signingMessage}
+            onSignIn={signIn}
+          />
+          {sessionError && <div className="error-line standalone-error">{sessionError}</div>}
           <RiskProfilePanel
             riskProfile={riskProfile}
             customRiskSettings={customRiskSettings}

@@ -2,6 +2,12 @@ import { addDecision as addMemoryDecision, getDecisions as getMemoryDecisions, g
 
 const databaseUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL || "";
 const hasDatabase = Boolean(databaseUrl);
+const authStore = globalThis.__VECAST_AUTH_STORE__ ?? {
+  nonces: new Map(),
+  sessions: new Map(),
+};
+
+globalThis.__VECAST_AUTH_STORE__ = authStore;
 
 let poolPromise;
 let schemaReady;
@@ -62,6 +68,22 @@ async function ensureSchema() {
         created_at timestamptz not null default now(),
         updated_at timestamptz not null default now(),
         unique (wallet_address, profile_name)
+      );
+
+      create table if not exists auth_nonces (
+        nonce text primary key,
+        wallet_address text not null,
+        message text not null,
+        expires_at timestamptz not null,
+        created_at timestamptz not null default now()
+      );
+
+      create table if not exists auth_sessions (
+        token text primary key,
+        wallet_address text not null,
+        expires_at timestamptz not null,
+        created_at timestamptz not null default now(),
+        last_seen_at timestamptz not null default now()
       );
     `);
   }
@@ -230,4 +252,139 @@ export async function saveRiskProfile(walletAddress, profile) {
   );
 
   return rows[0] || null;
+}
+
+export async function createAuthChallenge(walletAddress) {
+  const normalizedWallet = walletAddress.toLowerCase();
+  const nonce = crypto.randomUUID().replaceAll("-", "");
+  const issuedAt = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+  const message = [
+    "VeCast wants you to sign in with your wallet.",
+    "",
+    `Wallet: ${walletAddress}`,
+    `Nonce: ${nonce}`,
+    `Issued At: ${issuedAt}`,
+    "",
+    "This signature proves wallet ownership. It will not trigger a transaction or cost gas.",
+  ].join("\n");
+
+  authStore.nonces.set(nonce, {
+    walletAddress: normalizedWallet,
+    message,
+    expiresAt,
+  });
+
+  const pool = await ensureSchema();
+  if (pool) {
+    await pool.query(
+      `
+        insert into auth_nonces (nonce, wallet_address, message, expires_at)
+        values ($1, $2, $3, $4)
+        on conflict (nonce) do nothing
+      `,
+      [nonce, normalizedWallet, message, expiresAt]
+    );
+  }
+
+  return {
+    walletAddress,
+    nonce,
+    message,
+    expiresAt,
+  };
+}
+
+export async function consumeAuthChallenge({ walletAddress, nonce, message }) {
+  const normalizedWallet = walletAddress.toLowerCase();
+  const memoryChallenge = authStore.nonces.get(nonce);
+
+  if (memoryChallenge) {
+    authStore.nonces.delete(nonce);
+    return (
+      memoryChallenge.walletAddress === normalizedWallet &&
+      memoryChallenge.message === message &&
+      new Date(memoryChallenge.expiresAt).getTime() > Date.now()
+    );
+  }
+
+  const pool = await ensureSchema();
+  if (!pool) return false;
+
+  const { rows } = await pool.query(
+    `
+      delete from auth_nonces
+      where nonce = $1
+      returning wallet_address, message, expires_at
+    `,
+    [nonce]
+  );
+
+  const row = rows[0];
+  return (
+    row?.wallet_address === normalizedWallet &&
+    row?.message === message &&
+    new Date(row.expires_at).getTime() > Date.now()
+  );
+}
+
+export async function createSession(walletAddress) {
+  const normalizedWallet = walletAddress.toLowerCase();
+  const token = `${crypto.randomUUID()}${crypto.randomUUID()}`.replaceAll("-", "");
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+  authStore.sessions.set(token, {
+    walletAddress: normalizedWallet,
+    expiresAt,
+  });
+
+  const pool = await ensureSchema();
+  if (pool) {
+    await touchUser(normalizedWallet);
+    await pool.query(
+      `
+        insert into auth_sessions (token, wallet_address, expires_at)
+        values ($1, $2, $3)
+      `,
+      [token, normalizedWallet, expiresAt]
+    );
+  }
+
+  return {
+    token,
+    walletAddress,
+    expiresAt,
+  };
+}
+
+export async function getSession(token) {
+  if (!token) return null;
+  const memorySession = authStore.sessions.get(token);
+  if (memorySession) {
+    if (new Date(memorySession.expiresAt).getTime() <= Date.now()) {
+      authStore.sessions.delete(token);
+      return null;
+    }
+    return memorySession;
+  }
+
+  const pool = await ensureSchema();
+  if (!pool) return null;
+
+  const { rows } = await pool.query(
+    `
+      update auth_sessions
+      set last_seen_at = now()
+      where token = $1 and expires_at > now()
+      returning wallet_address, expires_at
+    `,
+    [token]
+  );
+
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    walletAddress: row.wallet_address,
+    expiresAt: row.expires_at,
+  };
 }

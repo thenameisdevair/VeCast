@@ -513,6 +513,14 @@ button:disabled {
   font-size: 11px;
 }
 
+.standalone-error {
+  margin-top: 0;
+  border: 1px solid rgba(239, 68, 68, 0.28);
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.08);
+  padding: 10px;
+}
+
 .quick-tokens {
   display: flex;
   flex-wrap: wrap;
