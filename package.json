@@ -13,19 +13,20 @@
     "vecast": "./index.js"
   },
   "dependencies": {
-    "ethers": "^6",
-    "@virtuals-protocol/acp-node-v2": "latest",
+    "@aa-sdk/core": "latest",
     "@account-kit/infra": "latest",
     "@account-kit/smart-contracts": "latest",
-    "@aa-sdk/core": "latest",
-    "viem": "latest",
+    "@virtuals-protocol/acp-node-v2": "latest",
     "chalk": "^5",
-    "ora": "^8",
-    "yargs": "^17",
-    "dotenv": "^16",
-    "express": "^4",
+    "concurrently": "^8",
     "cors": "^2",
-    "concurrently": "^8"
+    "dotenv": "^16",
+    "ethers": "^6",
+    "express": "^4",
+    "ora": "^8",
+    "pg": "^8.20.0",
+    "viem": "latest",
+    "yargs": "^17"
   },
   "engines": {
     "node": "20.x"

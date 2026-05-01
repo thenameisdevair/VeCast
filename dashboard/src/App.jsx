@@ -595,7 +595,12 @@ export default function App() {
   useEffect(() => {
     const fetchDecisions = async () => {
       try {
-        const res = await fetch(`${API}/api/decisions`);
+        const params = new URLSearchParams();
+        if (wallet.isConnected && wallet.isBase && wallet.address) {
+          params.set("walletAddress", wallet.address);
+        }
+        const query = params.toString();
+        const res = await fetch(`${API}/api/decisions${query ? `?${query}` : ""}`);
         const data = await res.json();
         setDecisions(Array.isArray(data) ? data : []);
         if (Array.isArray(data) && data.length > 0) setLastDecision(data[0]);
@@ -607,7 +612,7 @@ export default function App() {
     fetchDecisions();
     const interval = setInterval(fetchDecisions, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [wallet.address, wallet.isBase, wallet.isConnected]);
 
   useEffect(() => {
     const fetchAgent = async () => {

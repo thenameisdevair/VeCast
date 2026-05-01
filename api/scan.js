@@ -1,7 +1,7 @@
 import { getAddress, isAddress } from "ethers";
 import { scan } from "../src/scanner.js";
 import { score } from "../src/scorer.js";
-import { addDecision } from "./_memory.js";
+import { addDecision } from "./_store.js";
 
 const RISK_PROFILES = new Set(["conservative", "balanced", "aggressive", "custom"]);
 
@@ -125,6 +125,7 @@ export default async function handler(req, res) {
     });
     const token = extractToken(rawData.raw, normalizedTokenAddress);
     const decision = {
+      id: crypto.randomUUID(),
       token: normalizedTokenAddress,
       tokenAddress: normalizedTokenAddress,
       tokenInfo: token,
@@ -141,8 +142,8 @@ export default async function handler(req, res) {
       credits: rawData.credits,
     };
 
-    addDecision(decision);
-    res.status(200).json(decision);
+    const storedDecision = await addDecision(decision);
+    res.status(200).json(storedDecision);
   } catch (err) {
     res.status(err.statusCode || 500).json({ error: err.message || "Scan failed" });
   }
