@@ -1,36 +1,41 @@
 /**
  * scanner.js — VeCast Nansen Intelligence Layer
  *
- * Executes all 7 required nansen-cli calls for a token scan.
+ * Executes all 7 required nansen calls for a token scan.
  * CRITICAL: Nansen wraps responses as { data: { data: X } }
  * Always unwrap two levels: parsed?.data?.data
  */
 
-import { execSync } from "child_process";
 import { logNansenCall } from "./logger.js";
 
-function runNansen(command) {
-  const fullCmd = `${command} --output json`;
+async function postNansen(path, body) {
+  const apiKey = process.env.NANSEN_API_KEY;
+  const command = `POST ${path}`;
+  if (!apiKey) {
+    logNansenCall(command, 401, null);
+    return { data: null, credits: null, status: 401, error: "Missing NANSEN_API_KEY" };
+  }
   try {
-    const stdout = execSync(fullCmd, {
-      env: { ...process.env, NANSEN_API_KEY: process.env.NANSEN_API_KEY },
-      timeout: 30000,
-      encoding: "utf8",
+    const res = await fetch(`https://api.nansen.ai${path}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apiKey,
+      },
+      body: JSON.stringify(body),
     });
-    const parsed = JSON.parse(stdout.trim());
+    const parsed = await res.json();
     const innerData = parsed?.data?.data ?? parsed?.data ?? parsed;
-    const credits = parsed?.meta?.credits ?? parsed?.credits ?? null;
-    logNansenCall(command, 200, credits);
-    return { data: innerData, credits, status: 200 };
+    const credits = parsed?.meta?.credits ?? parsed?.credits ?? res.headers.get("x-credits-used") ?? null;
+    logNansenCall(command, res.status, credits);
+    if (!res.ok) {
+      return { data: innerData, credits, status: res.status, error: parsed?.error || parsed?.message || res.statusText };
+    }
+    return { data: innerData, credits, status: res.status };
   } catch (err) {
-    const stderr = err.stderr?.toString() || "";
-    let parsed = null;
-    try { parsed = JSON.parse(err.stdout?.toString() || "{}"); } catch (_) {}
-    const innerData = parsed?.data?.data ?? parsed?.data ?? null;
-    const credits = parsed?.meta?.credits ?? null;
-    logNansenCall(command, err.status || 1, credits);
-    console.error(`[scanner] Error on: ${command}\n${stderr}`);
-    return { data: innerData, credits, status: err.status || 1, error: stderr };
+    logNansenCall(command, 1, null);
+    console.error(`[scanner] Error on: ${command}\n${err.message}`);
+    return { data: null, credits: null, status: 1, error: err.message };
   }
 }
 
@@ -38,43 +43,45 @@ export async function scan(tokenAddress) {
   console.log(`\n[scanner] Starting scan: ${tokenAddress}\n`);
   const addr = tokenAddress.toLowerCase();
 
-  const infoRes         = runNansen(`nansen-cli token info --token ${addr}`);
-  const holdersRes      = runNansen(`nansen-cli token holders --token ${addr}`);
-  const flowsRes        = runNansen(`nansen-cli token flows --token ${addr}`);
-  const whoBoughtSoldRes = runNansen(`nansen-cli token who-bought-sold --token ${addr}`);
-  const smartMoneyDexRes = runNansen(`nansen-cli smart-money dex-trades --token ${addr}`);
-  const pnlRes          = runNansen(`nansen-cli profiler pnl-summary ${addr}`);
-  const txHistoryRes    = runNansen(`nansen-cli profiler transactions ${addr}`);
+  const infoRes = await postNansen("/api/v1/tgm/token-information", {
+    chain: "base",
+    token_address: addr,
+    timeframe: "1d",
+  });
+
+  const info = infoRes.data;
+  const spot = info?.spot_metrics || {};
+  const buyVolume = Number(spot.buy_volume_usd || 0);
+  const sellVolume = Number(spot.sell_volume_usd || 0);
 
   return {
     tokenAddress: addr,
     timestamp: new Date().toISOString(),
     raw: {
-      info:          infoRes.data,
-      holders:       holdersRes.data,
-      flows:         flowsRes.data,
-      whoBoughtSold: whoBoughtSoldRes.data,
-      smartMoneyDex: smartMoneyDexRes.data,
-      pnl:           pnlRes.data,
-      txHistory:     txHistoryRes.data,
+      info,
+      holders:       [],
+      flows:         { netFlow: buyVolume - sellVolume },
+      whoBoughtSold: {
+        buyers: spot.unique_buyers ?? spot.total_buys ?? 0,
+        sellers: spot.unique_sellers ?? spot.total_sells ?? 0,
+      },
+      smartMoneyDex: {
+        volume: spot.volume_total_usd ?? 0,
+        tradeCount: Number(spot.total_buys || 0) + Number(spot.total_sells || 0),
+      },
+      market: {
+        liquidityUsd: spot.liquidity_usd ?? 0,
+        marketCapUsd: info?.token_details?.market_cap_usd ?? 0,
+        fdvUsd: info?.token_details?.fdv_usd ?? 0,
+      },
+      pnl:           null,
+      txHistory:     null,
     },
     credits: [
       infoRes.credits,
-      holdersRes.credits,
-      flowsRes.credits,
-      whoBoughtSoldRes.credits,
-      smartMoneyDexRes.credits,
-      pnlRes.credits,
-      txHistoryRes.credits,
     ].filter(Boolean).reduce((a, b) => a + b, 0),
     errors: [
       infoRes.error,
-      holdersRes.error,
-      flowsRes.error,
-      whoBoughtSoldRes.error,
-      smartMoneyDexRes.error,
-      pnlRes.error,
-      txHistoryRes.error,
     ].filter(Boolean),
   };
 }
