@@ -116,9 +116,7 @@ function ThemeToggle({ theme, onToggle }) {
   );
 }
 
-function Header({ agent, theme, onToggleTheme }) {
-  const wallet = useWalletSummary();
-
+function Header({ agent, theme, onToggleTheme, wallet }) {
   return (
     <header className="topbar">
       <div className="brand-lockup">
@@ -196,6 +194,29 @@ function ScanPanel({ onScan, scanning, lastDecision, error }) {
       <div className="last-scanned">
         <span>Last scanned</span>
         <strong>{displayToken(lastDecision) || "Awaiting token"}</strong>
+      </div>
+    </section>
+  );
+}
+
+function UserContextPanel({ wallet }) {
+  const connectedOnBase = wallet.isConnected && wallet.isBase;
+
+  return (
+    <section className={`panel user-context-panel ${connectedOnBase ? "is-connected" : "is-demo"}`}>
+      <div className="panel-kicker">User Context</div>
+      <div className="context-head">
+        <div>
+          <strong>{connectedOnBase ? "Connected Wallet" : "Public Demo Mode"}</strong>
+          <span>{connectedOnBase ? truncate(wallet.address, 10, 8) : "Connect a wallet for personal scan history"}</span>
+        </div>
+        <ConnectWalletButton />
+      </div>
+      <div className="context-grid">
+        <Metric label="Network" value={wallet.isConnected ? (wallet.isBase ? "Base" : "Wrong chain") : "Base preview"} />
+        <Metric label="Balance" value={connectedOnBase ? `${wallet.balanceLabel} ETH` : "-"} accent />
+        <Metric label="Risk" value="Balanced" />
+        <Metric label="Autonomy" value="Disabled" />
       </div>
     </section>
   );
@@ -364,7 +385,7 @@ function StatsPanel({ decisions }) {
   );
 }
 
-function LandingPage({ theme, onToggleTheme, onEnter }) {
+function LandingPage({ theme, onToggleTheme, onEnter, onDemo }) {
   return (
     <div className="landing-shell">
       <header className="landing-topbar">
@@ -383,10 +404,15 @@ function LandingPage({ theme, onToggleTheme, onEnter }) {
           <VecastMark />
         </div>
         <h1>VeCast</h1>
-        <p>Live token intelligence, autonomous risk scoring, and transparent BUY / HOLD / BLOCK decisions for Base.</p>
-        <button type="button" onClick={onEnter}>
-          Open Dashboard
-        </button>
+        <p>Connect wallet, scan a Base token, understand risk, and keep agent actions under user-signed control.</p>
+        <div className="landing-actions">
+          <button type="button" onClick={onEnter}>
+            Launch App
+          </button>
+          <button className="secondary-action" type="button" onClick={onDemo}>
+            View Demo Scan
+          </button>
+        </div>
         <div className="landing-status">
           <PulseDot />
           <span>BASE MAINNET · CONNECTED</span>
@@ -405,6 +431,7 @@ function LandingPage({ theme, onToggleTheme, onEnter }) {
 }
 
 export default function App() {
+  const wallet = useWalletSummary();
   const [screen, setScreen] = useState("landing");
   const [theme, setTheme] = useState(() => localStorage.getItem("vecast-theme") || "dark");
   const [agent, setAgent] = useState(null);
@@ -412,6 +439,7 @@ export default function App() {
   const [lastDecision, setLastDecision] = useState(null);
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState("");
+  const [queuedDemoScan, setQueuedDemoScan] = useState(false);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -458,13 +486,19 @@ export default function App() {
     setError("");
 
     try {
+      const payload = {
+        tokenAddress,
+        riskProfile: DEFAULT_RISK_PROFILE,
+      };
+
+      if (wallet.isConnected && wallet.isBase && wallet.address) {
+        payload.walletAddress = wallet.address;
+      }
+
       const res = await fetch(`${API}/api/scan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tokenAddress,
-          riskProfile: DEFAULT_RISK_PROFILE,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || "Scan failed");
@@ -478,15 +512,28 @@ export default function App() {
     }
   };
 
+  useEffect(() => {
+    if (!queuedDemoScan || scanning) return;
+    setQueuedDemoScan(false);
+    handleScan(DEMO_TOKENS[0].address);
+  }, [queuedDemoScan, scanning]);
+
+  const openDashboard = () => setScreen("dashboard");
+  const openDemoScan = () => {
+    setScreen("dashboard");
+    setQueuedDemoScan(true);
+  };
+
   return (
     <div className="app-shell">
       {screen === "landing" ? (
-        <LandingPage theme={theme} onToggleTheme={toggleTheme} onEnter={() => setScreen("dashboard")} />
+        <LandingPage theme={theme} onToggleTheme={toggleTheme} onEnter={openDashboard} onDemo={openDemoScan} />
       ) : (
         <>
-      <Header agent={agent} theme={theme} onToggleTheme={toggleTheme} />
+      <Header agent={agent} wallet={wallet} theme={theme} onToggleTheme={toggleTheme} />
       <main className="dashboard-grid">
         <div className="left-rail">
+          <UserContextPanel wallet={wallet} />
           <ScanPanel onScan={handleScan} scanning={scanning} lastDecision={lastDecision} error={error} />
           <HistoryPanel decisions={decisions} />
         </div>
