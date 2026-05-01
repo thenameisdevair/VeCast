@@ -2,7 +2,7 @@
 
 Autonomous token intelligence and risk scoring for Base.
 
-VeCast is an AI economic agent that evaluates Base mainnet tokens using live Nansen market intelligence, converts those signals into a 0-100 risk score, and returns an autonomous `BUY`, `HOLD`, or `BLOCK` decision with a transparent explanation. It is built for fast token triage: the dashboard shows agent status, wallet balance, scan history, score breakdowns, and the reasoning behind every decision.
+VeCast is an AI economic agent that evaluates Base mainnet tokens using live Nansen market intelligence, converts those signals into a 0-100 risk score, and returns a `BUY`, `HOLD`, or `BLOCK` decision with a transparent explanation. V2 adds connected user wallets, signed wallet sessions, risk preferences, persistent scan history, shareable scan reports, and a public execution boundary that never asks for private keys.
 
 Live app: https://ve-cast.vercel.app/
 
@@ -19,7 +19,7 @@ For each token address, the agent:
 3. Scores the token across seven risk dimensions.
 4. Produces a `BUY`, `HOLD`, or `BLOCK` decision.
 5. Displays the full reasoning trail in a live dashboard.
-6. Optionally supports autonomous execution through the CLI trading path.
+6. Saves signed-user scan history and produces shareable public reports.
 
 The project is designed for agentic finance workflows where other agents, builders, or judges need to see not just a decision, but why the agent reached it.
 
@@ -38,7 +38,11 @@ These tokens are useful for demonstrating different risk profiles:
 ```text
 React Dashboard
   |
-  | /api/scan
+  | WalletConnect / Reown + wagmi
+  v
+Connected Base Wallet
+  |
+  | signed session + /api/scan
   v
 Vercel API Route / Express API
   |
@@ -58,7 +62,7 @@ BUY / HOLD / BLOCK Decision
 Dashboard + Decision History
 ```
 
-Local development also includes a CLI agent loop and optional on-chain execution module.
+Local development also includes a CLI agent loop and optional on-chain execution module. The deployed public app keeps `/api/scan` separate from `/api/execute`; execution is authenticated and disabled by default.
 
 ## Tech Stack
 
@@ -68,7 +72,8 @@ Local development also includes a CLI agent loop and optional on-chain execution
 | Backend | Node.js 20, Express locally, Vercel API routes in production |
 | Intelligence | Nansen REST API |
 | Chain | Base Mainnet, chain ID `8453` |
-| Wallet / RPC | ethers.js v6 |
+| Wallet / RPC | Reown AppKit, wagmi, viem, ethers.js v6 |
+| Persistence | Optional Postgres via `DATABASE_URL` or `POSTGRES_URL`, with memory fallback |
 | Optional Commerce | Virtuals Protocol ACP SDK |
 | Optional Execution | Uniswap V3 SwapRouter on Base |
 | Deployment | Vercel |
@@ -77,13 +82,15 @@ Local development also includes a CLI agent loop and optional on-chain execution
 
 - Live Base token scan by contract address
 - Nansen-powered token intelligence
-- Risk score from `0-100`
-- Decision thresholds: `BUY`, `HOLD`, `BLOCK`
+- Risk score from `0-100`, where lower is safer and higher is riskier
+- Configurable decision thresholds: Conservative, Balanced, Aggressive, Custom
 - Signal-by-signal score breakdown
 - Human-readable reasoning for each decision
-- Agent wallet balance and uptime display
-- Scan history and decision feed
+- Connected wallet context, Base network status, signed session state
+- Signed-user scan history, search/filter/pin/export controls
+- Shareable public scan pages at `/scan/:scanId`
 - Demo-ready preset token buttons
+- Public `/api/execute` boundary that requires signed sessions and refuses live autonomous execution by default
 - Local CLI commands for scan, trade, watch, provider, log, and balance
 - Vercel API route support for deployed scans
 
@@ -93,9 +100,18 @@ Lower scores are safer. Higher scores are riskier.
 
 | Score Range | Decision | Meaning |
 |---|---|---|
-| `0-35` | `BUY` | Risk appears acceptable for autonomous action |
-| `36-60` | `HOLD` | Mixed signal profile; monitor but do not act |
-| `61-100` | `BLOCK` | High-risk token; avoid autonomous execution |
+| `0-35` | `BUY` | Balanced profile: risk appears acceptable |
+| `36-60` | `HOLD` | Balanced profile: mixed signal profile |
+| `61-100` | `BLOCK` | Balanced profile: high-risk token |
+
+Risk profiles adjust these thresholds:
+
+| Profile | BUY | HOLD | BLOCK |
+|---|---|---|---|
+| Conservative | `<=25` | `<=50` | `>50` |
+| Balanced | `<=35` | `<=60` | `>60` |
+| Aggressive | `<=45` | `<=70` | `>70` |
+| Custom | User selected | User selected | Above HOLD max |
 
 ### Signal Dimensions
 
@@ -128,8 +144,12 @@ Score: 74 / 100
 .
 ├── api/                    # Vercel serverless API routes
 │   ├── agent.js
+│   ├── auth/
+│   ├── execute.js
 │   ├── decisions.js
 │   ├── health.js
+│   ├── _rateLimit.js
+│   ├── _store.js
 │   └── scan.js
 ├── dashboard/              # React/Vite frontend
 │   ├── src/App.jsx
@@ -182,13 +202,16 @@ NANSEN_API_KEY=
 AGENT_PRIVATE_KEY=
 AGENT_WALLET_ADDRESS=
 RPC_URL=
+VITE_BASE_RPC_URL=
+VITE_WALLETCONNECT_PROJECT_ID=
+DATABASE_URL=
 MAX_SPEND_ETH=0.001
 ACP_BUILDER_CODE=
 ACP_ENTITY_ID=1
 API_PORT=3001
 ```
 
-`API_PORT` is used only for local Express development. Vercel does not need it.
+`API_PORT` is used only for local Express development. Vercel does not need it. `DATABASE_URL` or `POSTGRES_URL` is optional locally, but required for durable production history and sessions.
 
 ### Run Locally
 
@@ -241,15 +264,19 @@ The deployed app uses Vercel API routes. The local app uses equivalent Express r
 |---|---|---|
 | `/api/health` | `GET` | Service status and uptime |
 | `/api/agent` | `GET` | Agent wallet address, ETH balance, network, uptime |
-| `/api/decisions` | `GET` | Recent decision history |
-| `/api/scan` | `POST` | Scan a token and return score, decision, breakdown, and reasons |
+| `/api/auth/nonce` | `POST` | Create a safe sign-in message for a wallet |
+| `/api/auth/verify` | `POST` | Verify wallet signature and issue a session token |
+| `/api/decisions` | `GET` | Recent public history or signed wallet history |
+| `/api/scan` | `POST` | Scan a token and return token identity, risk score, decision, breakdown, and reasons |
+| `/api/scan/:id` | `GET` | Public shareable scan report |
+| `/api/execute` | `POST` | Authenticated execution boundary; disabled-by-default in public app |
 
 Example scan request:
 
 ```bash
 curl -X POST https://ve-cast.vercel.app/api/scan \
   -H "Content-Type: application/json" \
-  -d '{"tokenAddress":"0x4200000000000000000000000000000000000006"}'
+  -d '{"tokenAddress":"0x4200000000000000000000000000000000000006","riskProfile":"balanced"}'
 ```
 
 Example response:
@@ -257,7 +284,13 @@ Example response:
 ```json
 {
   "token": "0x4200000000000000000000000000000000000006",
+  "tokenInfo": {
+    "symbol": "WETH",
+    "name": "Wrapped Ether",
+    "liquidityUsd": 325000000
+  },
   "score": 33,
+  "riskScore": 33,
   "decision": "BUY",
   "reasons": ["Exceptional net inflow: $22,140,643"],
   "breakdown": {
@@ -296,6 +329,9 @@ NANSEN_API_KEY=
 AGENT_PRIVATE_KEY=
 AGENT_WALLET_ADDRESS=
 RPC_URL=
+VITE_BASE_RPC_URL=
+VITE_WALLETCONNECT_PROJECT_ID=
+DATABASE_URL=
 MAX_SPEND_ETH=0.001
 ACP_ENTITY_ID=1
 ACP_BUILDER_CODE=
@@ -307,9 +343,11 @@ Do not set `API_PORT` in Vercel.
 
 - Never commit `.env`.
 - Treat `AGENT_PRIVATE_KEY` as a production secret.
+- Never ask users for private keys, seed phrases, JSON keystores, or blind/unlimited approvals.
+- Browser-exposed variables must use only public values such as `VITE_BASE_RPC_URL` and `VITE_WALLETCONNECT_PROJECT_ID`.
 - Use a low-balance demo wallet for hackathon demos.
 - Rotate keys immediately if they are exposed in logs, screenshots, chat, or build output.
-- The public dashboard exposes scanning actions only. Autonomous trading should remain CLI-controlled unless additional authentication and slippage protection are added.
+- The public dashboard exposes scanning and signed-session history only. `/api/execute` is separate, authenticated, and disabled by default.
 
 ## Autonomous Execution
 
@@ -333,7 +371,7 @@ Current execution module:
 - Input asset: WETH on Base
 - Default pool fee: `3000`
 
-For production trading, add slippage protection, allowlists, and execution authentication before exposing trading through a public UI.
+For production trading, add slippage protection, allowlists, scoped smart-account permissions or session keys, spending limits, and a dedicated security review before enabling public execution.
 
 ## ACP Provider Mode
 
@@ -354,11 +392,9 @@ ACP_ENTITY_ID=
 
 ## Roadmap
 
-- Add persistent production decision storage
-- Add authenticated trade execution controls
+- Connect a production Postgres database and WalletConnect project ID in Vercel
+- Add scoped smart-account permissions for limited agent execution
 - Add richer Nansen endpoints for top-holder concentration
-- Add token metadata display in the dashboard
-- Add light mode and improved risk-scale semantics
 - Add ACP marketplace proof flow
 - Add test coverage for scanner/scorer behavior
 
